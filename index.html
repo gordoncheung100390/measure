@@ -20,9 +20,19 @@
             position: absolute;
             z-index: 1;
         }
+        /* The overlay canvas where points and lines are drawn */
+        #ar-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
         #ui-layer {
             position: absolute;
-            z-index: 2;
+            z-index: 3;
             width: 100%;
             height: 100%;
             display: flex;
@@ -44,7 +54,7 @@
             margin-bottom: 20px;
         }
         button {
-            background: #007bff;
+            background: #007aff;
             color: white;
             border: none;
             padding: 12px 20px;
@@ -62,7 +72,7 @@
             width: 20px;
             height: 20px;
             transform: translate(-50%, -50%);
-            z-index: 3;
+            z-index: 4;
             pointer-events: none;
         }
         #crosshair::before, #crosshair::after {
@@ -84,6 +94,7 @@
 <body>
 
     <video id="camera-view" autoplay playsinline></video>
+    <canvas id="ar-canvas"></canvas>
     <div id="crosshair"></div>
 
     <div id="ui-layer">
@@ -102,6 +113,9 @@
 
     <script>
         const video = document.getElementById('camera-view');
+        const canvas = document.getElementById('ar-canvas');
+        const ctx = canvas.getContext('2d');
+        
         const btnLog = document.getElementById('btn-log');
         const btnClear = document.getElementById('btn-clear');
         const btnPermission = document.getElementById('btn-permission');
@@ -113,12 +127,20 @@
         let currentYaw = 0;   // Alpha
         let points = [];
 
+        // Resize tracking canvas to match display size perfectly
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
         // 1. Start Camera Feed
         navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
             .then(stream => { video.srcObject = stream; })
             .catch(err => alert("Camera access denied or unavailable: " + err));
 
-        // 2. Request Gyroscope Permissions (Crucial for iOS)
+        // 2. Request Gyroscope Permissions
         btnPermission.addEventListener('click', () => {
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
@@ -126,26 +148,24 @@
                         if (permissionState === 'granted') { initGyro(); }
                     }).catch(console.error);
             } else {
-                initGyro(); // Android/Desktop doesn't always require explicit prompt
+                initGyro(); 
             }
         });
 
         function initGyro() {
             window.addEventListener('deviceorientation', (e) => {
-                // Convert degrees to radians
-                currentYaw = (e.alpha * Math.PI) / 180;   // Compass direction
-                currentPitch = (e.beta * Math.PI) / 180; // Tilt front/back
+                currentYaw = (e.alpha * Math.PI) / 180;   
+                currentPitch = (e.beta * Math.PI) / 180; 
                 btnLog.disabled = false;
                 btnPermission.style.display = 'none';
             });
+            // Start the visual render engine loop
+            requestAnimationFrame(renderLoop);
         }
 
         // 3. Log a Room Corner
         btnLog.addEventListener('click', () => {
             const h = parseFloat(txtHeight.value);
-            
-            // Math: Distance along floor = height * tan(90 - pitch)
-            // If phone is flat, beta is 0. If upright, beta is 90.
             const angleOfDepression = (Math.PI / 2) - currentPitch;
             
             if (angleOfDepression <= 0) {
@@ -155,11 +175,17 @@
 
             const distance = h * Math.tan(angleOfDepression);
 
-            // Convert Polar coordinates (distance, direction) to Cartesian (x, y)
             const x = distance * Math.cos(currentYaw);
             const y = distance * Math.sin(currentYaw);
 
-            points.push({x, y});
+            // Save math coordinates AND the alignment sensors for visual tracing
+            points.push({
+                x: x, 
+                y: y, 
+                yaw: currentYaw, 
+                pitch: currentPitch
+            });
+            
             txtStatus.innerText = `Points logged: ${points.length}`;
 
             if (points.length >= 3) {
@@ -170,19 +196,115 @@
         // 4. Calculate Area using Shoelace Formula
         function calculateArea() {
             let area = 0;
-            const j = points.length - 1;
-
             for (let i = 0; i < points.length; i++) {
                 const p1 = points[i];
                 const p2 = points[(i + 1) % points.length];
                 area += (p1.x * p2.y) - (p2.x * p1.y);
             }
-
             area = Math.abs(area / 2);
             txtResult.innerHTML = `<strong>Area: ${area.toFixed(2)} sqm</strong>`;
         }
 
-        // 5. Reset App
+        // 5. The Live Tracking Render Loop
+        function renderLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // --- PART A: DRAW 3D LINE OVERLAY ON CAMERA VIEW ---
+            const fovX = 1.1; // Lens Field of view approximation
+            const fovY = 1.1;
+            let screenPoints = [];
+
+            points.forEach(pt => {
+                // Calculate angular distance between camera orientation and logged corner
+                let diffYaw = pt.yaw - currentYaw;
+                while (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
+                while (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
+
+                let diffPitch = currentPitch - pt.pitch;
+
+                // Map to screen pixel coordinates
+                const screenX = (canvas.width / 2) - (diffYaw / fovX) * canvas.width;
+                const screenY = (canvas.height / 2) + (diffPitch / fovY) * canvas.height;
+                
+                screenPoints.push({ x: screenX, y: screenY });
+            });
+
+            // Draw connecting tracking lines
+            if (screenPoints.length > 0) {
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#007aff';
+                ctx.fillStyle = 'rgba(0, 122, 255, 0.2)';
+                
+                ctx.beginPath();
+                ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+                for(let i = 1; i < screenPoints.length; i++) {
+                    ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+                }
+                
+                // Traces back to the center crosshair for the active edge line
+                ctx.lineTo(canvas.width / 2, canvas.height / 2); 
+                ctx.stroke();
+
+                // Draw solid points over corners
+                screenPoints.forEach((pt, idx) => {
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 8, 0, 2 * Math.PI);
+                    ctx.fillStyle = idx === 0 ? '#ffcc00' : '#007aff'; // Orange for start point
+                    ctx.fill();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                });
+            }
+
+            // --- PART B: DRAW BLUEPRINT TOP-DOWN MINI-MAP ---
+            if (points.length > 0) {
+                const mapSize = 100;
+                const mapPadding = 15;
+                const mapX = canvas.width - mapSize - mapPadding;
+                const mapY = mapPadding;
+
+                // Background container for minimap
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.borderRadius = 8;
+                ctx.fillRect(mapX, mapY, mapSize, mapSize);
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+
+                // Find scaling factor based on room limits
+                let maxDist = 1;
+                points.forEach(p => {
+                    maxDist = Math.max(maxDist, Math.abs(p.x), Math.abs(p.y));
+                });
+                const scale = (mapSize / 2) / (maxDist * 1.2);
+                const centerX = mapX + (mapSize / 2);
+                const centerY = mapY + (mapSize / 2);
+
+                // Draw blueprint outline lines
+                ctx.beginPath();
+                ctx.strokeStyle = '#4caf50';
+                ctx.lineWidth = 2;
+                ctx.moveTo(centerX + points[0].x * scale, centerY - points[0].y * scale);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(centerX + points[i].x * scale, centerY - points[i].y * scale);
+                }
+                if (points.length >= 3) {
+                    ctx.closePath();
+                }
+                ctx.stroke();
+
+                // Draw current standpoint indicator (you)
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, 4, 0, 2 * Math.PI);
+                ctx.fillStyle = '#dc3545';
+                ctx.fill();
+            }
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        // 6. Reset App
         btnClear.addEventListener('click', () => {
             points = [];
             txtStatus.innerText = "Points logged: 0";
