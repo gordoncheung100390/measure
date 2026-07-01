@@ -2,192 +2,135 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Sqm Room Measurer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Floor Area Manager</title>
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: #000;
-            color: #fff;
-        }
-        #camera-view {
-            width: 100vw;
-            height: 100vh;
-            object-fit: cover;
-            position: absolute;
-            z-index: 1;
-        }
-        #ui-layer {
-            position: absolute;
-            z-index: 2;
-            width: 100%;
-            height: 100%;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
             display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            pointer-events: none;
-        }
-        .hud {
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            margin: 10px;
-            border-radius: 10px;
-            pointer-events: auto;
-        }
-        .controls {
-            display: flex;
-            gap: 10px;
             justify-content: center;
-            margin-bottom: 20px;
         }
-        button {
-            background: #007bff;
+        .dashboard {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.05);
+            width: 100%;
+            max-width: 800px;
+        }
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        h2 {
+            margin: 0;
+            color: #1a1a1a;
+        }
+        .btn-scan {
+            background: #007aff;
             color: white;
             border: none;
-            padding: 12px 20px;
+            padding: 12px 24px;
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 600;
             border-radius: 8px;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
         }
-        button:active { background: #0056b3; }
-        button.danger { background: #dc3545; }
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 20px;
-            height: 20px;
-            transform: translate(-50%, -50%);
-            z-index: 3;
-            pointer-events: none;
+        .btn-scan:hover { background: #005ce6; }
+        .btn-scan:active { transform: scale(0.98); }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
         }
-        #crosshair::before, #crosshair::after {
-            content: '';
-            position: absolute;
-            background: red;
+        th, td {
+            text-align: left;
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
         }
-        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
-        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
-        input {
-            width: 60px;
-            padding: 5px;
-            border-radius: 4px;
-            border: none;
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #666;
+        }
+        .action-link {
+            color: #dc3545;
+            text-decoration: none;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .action-link:hover { text-decoration: underline; }
+        
+        .total-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
             text-align: center;
+            font-size: 24px;
+            border: 1px solid #e9ecef;
+        }
+        .total-panel strong {
+            color: #007aff;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
         }
     </style>
 </head>
 <body>
 
-    <video id="camera-view" autoplay playsinline></video>
-    <div id="crosshair"></div>
-
-    <div id="ui-layer">
-        <div class="hud">
-            <div><strong>Height (meters):</strong> <input type="number" id="cam-height" value="1.5" step="0.1"></div>
-            <div id="status" style="margin-top: 5px;">Points logged: 0</div>
-            <div id="result" style="font-size: 18px; margin-top: 5px; color: #4caf50;"><strong>Area: 0.00 sqm</strong></div>
-        </div>
-
-        <div class="hud controls">
-            <button id="btn-permission">1. Grant Gyro</button>
-            <button id="btn-log" disabled>2. Log Corner</button>
-            <button id="btn-clear" class="danger">Reset</button>
-        </div>
+<div class="dashboard">
+    <div class="header-actions">
+        <h2>Room Measurements</h2>
+        <button class="btn-scan">
+            📷 Start AR Camera Scan
+        </button>
     </div>
 
-    <script>
-        const video = document.getElementById('camera-view');
-        const btnLog = document.getElementById('btn-log');
-        const btnClear = document.getElementById('btn-clear');
-        const btnPermission = document.getElementById('btn-permission');
-        const txtHeight = document.getElementById('cam-height');
-        const txtStatus = document.getElementById('status');
-        const txtResult = document.getElementById('result');
+    <table>
+        <thead>
+            <tr>
+                <th>Room Name</th>
+                <th>Floor Type</th>
+                <th>Area (Sqm)</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="room-list">
+            <tr>
+                <td>Living Room</td>
+                <td>Hardwood</td>
+                <td>21.32</td>
+                <td><a class="action-link">Delete</a></td>
+            </tr>
+            <tr>
+                <td>Bedroom 1</td>
+                <td>Carpet</td>
+                <td>12.16</td>
+                <td><a class="action-link">Delete</a></td>
+            </tr>
+            </tbody>
+    </table>
 
-        let currentPitch = 0; // Beta
-        let currentYaw = 0;   // Alpha
-        let points = [];
+    <div class="total-panel">
+        Total Floor Area: <strong>33.48 sqm</strong>
+    </div>
+</div>
 
-        // 1. Start Camera Feed
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-            .then(stream => { video.srcObject = stream; })
-            .catch(err => alert("Camera access denied or unavailable: " + err));
-
-        // 2. Request Gyroscope Permissions (Crucial for iOS)
-        btnPermission.addEventListener('click', () => {
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') { initGyro(); }
-                    }).catch(console.error);
-            } else {
-                initGyro(); // Android/Desktop doesn't always require explicit prompt
-            }
-        });
-
-        function initGyro() {
-            window.addEventListener('deviceorientation', (e) => {
-                // Convert degrees to radians
-                currentYaw = (e.alpha * Math.PI) / 180;   // Compass direction
-                currentPitch = (e.beta * Math.PI) / 180; // Tilt front/back
-                btnLog.disabled = false;
-                btnPermission.style.display = 'none';
-            });
-        }
-
-        // 3. Log a Room Corner
-        btnLog.addEventListener('click', () => {
-            const h = parseFloat(txtHeight.value);
-            
-            // Math: Distance along floor = height * tan(90 - pitch)
-            // If phone is flat, beta is 0. If upright, beta is 90.
-            const angleOfDepression = (Math.PI / 2) - currentPitch;
-            
-            if (angleOfDepression <= 0) {
-                alert("Aim lower! You must point the crosshair at the floor corners.");
-                return;
-            }
-
-            const distance = h * Math.tan(angleOfDepression);
-
-            // Convert Polar coordinates (distance, direction) to Cartesian (x, y)
-            const x = distance * Math.cos(currentYaw);
-            const y = distance * Math.sin(currentYaw);
-
-            points.push({x, y});
-            txtStatus.innerText = `Points logged: ${points.length}`;
-
-            if (points.length >= 3) {
-                calculateArea();
-            }
-        });
-
-        // 4. Calculate Area using Shoelace Formula
-        function calculateArea() {
-            let area = 0;
-            const j = points.length - 1;
-
-            for (let i = 0; i < points.length; i++) {
-                const p1 = points[i];
-                const p2 = points[(i + 1) % points.length];
-                area += (p1.x * p2.y) - (p2.x * p1.y);
-            }
-
-            area = Math.abs(area / 2);
-            txtResult.innerHTML = `<strong>Area: ${area.toFixed(2)} sqm</strong>`;
-        }
-
-        // 5. Reset App
-        btnClear.addEventListener('click', () => {
-            points = [];
-            txtStatus.innerText = "Points logged: 0";
-            txtResult.innerHTML = "<strong>Area: 0.00 sqm</strong>";
-        });
-    </script>
 </body>
 </html>
